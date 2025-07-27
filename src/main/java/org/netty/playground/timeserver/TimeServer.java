@@ -1,4 +1,4 @@
-package org.netty.playground.discardserver;
+package org.netty.playground.timeserver;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -7,26 +7,20 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import org.netty.playground.echoserver.EchoServerHandler;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class DiscardServer {
-    private int[] ports;
+public class TimeServer {
+    private final int port;
 
-    public DiscardServer(int[] ports) {
-        this.ports = ports;
+    public TimeServer(int port) {
+        this.port = port;
     }
 
     public void run() throws Exception {
-        // Boss EventLoop: Single-threaded, handles server socket accepts.
-        // New connection is established from the client with a 3-way TCP handshake at the OS level,
-        // epoll detects server FD ready → Java NIO selector fires OP_ACCEPT →
-        // boss calls accept() to get new client FD → assigns client channel to worker.
         EventLoopGroup bossGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
-
-        // Worker EventLoops: Multi-threaded, each worker owns multiple client FDs.
-        // Each worker registers its client FDs with its own epoll instance for I/O events.
         EventLoopGroup workerGroup = new MultiThreadIoEventLoopGroup(Runtime.getRuntime().availableProcessors(), NioIoHandler.newFactory());
 
         try {
@@ -38,13 +32,15 @@ public class DiscardServer {
                     // than accepting the connection
                     .handler(new LoggingHandler(LogLevel.INFO))
                     // Netty creates a separate channel to manage the communication with the client once the connection is accepted
+                    // It creates a new handler instance per channel.
                     // The logic should be defined in the pipeline as a list of consecutive steps
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                    // NOTE: it is possible to share the same handler among different connections. You would need to instantiated the EchoServerHandler
+                    // outside and pass the instance. Also, the EchoServerHandler needs to be annotated with @ChannelHandler.Sharable
+                    .childHandler(new ChannelInitializer<SocketChannel>() { // This is created only once. The initChannel is executed every time a new client connection is established
                         @Override
                         protected void initChannel(SocketChannel socketChannel) {
-                            // An SSL handler would be need to enable encryption on the TCP connection
-                            // So, TLS handshake would be performed in the pipeline
-                            socketChannel.pipeline().addFirst(new LoggingHandler(LogLevel.INFO)).addLast(new DiscardServerHandler());
+                            // TimeEncoder is before TimeServerHandler because outbound events flow from tail to the head
+                            socketChannel.pipeline().addFirst(new LoggingHandler(LogLevel.INFO)).addLast(new TimeEncoder(), new TimeServerHandler());
                         }
                     })
 
@@ -52,20 +48,13 @@ public class DiscardServer {
                     .childOption(ChannelOption.SO_KEEPALIVE, true);
 
             // Bind and start to accept incoming connections.
-            List<ChannelFuture> futures = new ArrayList<>();
-
-            for (int port : ports) {
-                // A ChannelFuture represents an I/O operation
-                // The bind(port) creates a Server Socket File Descriptor under the hood
-                ChannelFuture future = serverBootstrap.bind(port).sync();
-                System.out.println("Server started and listening on port " + port);
-                futures.add(future);
-            }
+            ChannelFuture future = serverBootstrap.bind(port).sync();
+            System.out.println("Server started and listening on port " + port);
 
             // Wait until the server socket is closed.
             // In this example, this does not happen, but you can do that to gracefully
             // shut down your server.
-            futures.getFirst().channel().closeFuture().sync();
+            future.channel().closeFuture().sync();
         } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
@@ -73,8 +62,8 @@ public class DiscardServer {
     }
 
     public static void main(String[] args) throws Exception {
-        int[] ports = {8080, 8081, 8082};
+        int port = 37;
 
-        new DiscardServer(ports).run();
+        new TimeServer(port).run();
     }
 }
