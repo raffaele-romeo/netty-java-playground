@@ -1,4 +1,4 @@
-package org.netty.playground.discardserver;
+package org.netty.playground.echoserver;
 
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -11,10 +11,10 @@ import io.netty.handler.logging.LoggingHandler;
 import java.util.ArrayList;
 import java.util.List;
 
-public class DiscardServer {
+public class EchoServer {
     private int[] ports;
 
-    public DiscardServer(int[] ports) {
+    public EchoServer(int[] ports) {
         this.ports = ports;
     }
 
@@ -31,11 +31,14 @@ public class DiscardServer {
                     // than accepting the connection
                     .handler(new LoggingHandler(LogLevel.INFO))
                     // Netty creates a separate channel to manage the communication with the client once the connection is accepted
+                    // It creates a new handler instance per channel.
                     // The logic should be defined in the pipeline as a list of consecutive steps
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                    // NOTE: it is possible to share the same handler among different connections. You would need to instantiated the EchoServerHandler
+                    // outside and pass the instance. Also, the EchoServerHandler needs to be annotated with @ChannelHandler.Sharable
+                    .childHandler(new ChannelInitializer<SocketChannel>() { // This is created only once. The initChannel is executed every time a new client connection is established
                         @Override
                         protected void initChannel(SocketChannel socketChannel) {
-                            socketChannel.pipeline().addFirst(new LoggingHandler(LogLevel.INFO)).addLast(new DiscardServerHandler());
+                            socketChannel.pipeline().addFirst(new LoggingHandler(LogLevel.INFO)).addLast(new EchoServerHandler());
                         }
                     })
 
@@ -46,7 +49,6 @@ public class DiscardServer {
             List<ChannelFuture> futures = new ArrayList<>();
 
             for (int port : ports) {
-                // A ChannelFuture represents an I/O operation
                 ChannelFuture future = serverBootstrap.bind(port).sync();
                 System.out.println("Server started and listening on port " + port);
                 futures.add(future);
@@ -65,6 +67,6 @@ public class DiscardServer {
     public static void main(String[] args) throws Exception {
         int[] ports = {8080, 8081, 8082};
 
-        new DiscardServer(ports).run();
+        new EchoServer(ports).run();
     }
 }
